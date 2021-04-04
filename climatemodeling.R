@@ -4,9 +4,8 @@ packages<-c("tidyverse","sp","rgdal",
 sapply(packages,require,character.only=TRUE)
 #1.Relativizar coordenadas####
 
-#ej.tenerife
-maxlat<-15
-maxlong<-28
+zi<-xi-min/max-min
+
 
 
 #readtmean
