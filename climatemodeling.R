@@ -3,9 +3,13 @@ packages<-c("tidyverse","sp","rgdal",
                       "raster","DHARMa","mgcv","fields","viridis","leaflet",
             "htmltools","htmlwidgets")
 sapply(packages,require,character.only=TRUE,quietly=TRUE)
+projectionUTM<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs "
+projectiongeo<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+
 #1.1. Cotejar coordenadas ISA Gran Canaria
 
 GC<-readOGR("estacionesAEMET_GC.shp")
+GCgeo<-spTransform(GC,projectiongeo)
 limGC<-extent(GC)
 plot(GC)
 GCdf<-data.frame(GC) %>% mutate(LONG=LONG/10000,LAT=LAT/10000)
