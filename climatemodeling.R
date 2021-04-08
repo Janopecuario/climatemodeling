@@ -7,14 +7,20 @@ projectionUTM<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs "
 projectiongeo<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
 
 #1.1. Cotejar coordenadas ISA Gran Canaria
+GCelev<-raster("C:/Users/Alejandro/Documents/Tesis/Lacer/grancanaria.asc")
+crs(GCelev)<-projectionUTM
+GCelev<-GCelev%>% 
+  projectRaster(crs=projectiongeo)
 
+
+archipielago<-
 GC<-readOGR("estacionesAEMET_GC.shp")
 GCgeo<-spTransform(GC,projectiongeo)
 coordinates(GCgeo)
 limGC<-extent(GCgeo)
 plot(GCgeo)
 GCdf<-data.frame(GC) %>% mutate(LONG=LONG/10000,LAT=LAT/10000) %>% 
-  select(-c(XUTM30,YUTM30,PROV_NOMBR,NOMHOJA,ALTI_ANE,PROV_ID,
+  dplyr::select(-c(XUTM30,YUTM30,PROV_NOMBR,NOMHOJA,ALTI_ANE,PROV_ID,
             NUM_CUENCA,HOJA_ID,GR_CUENCA_,TIPO_CORRI,AMBITO,
             AMBITO_ID,CORRIENTE,CDR1,CDR2,optional,COMENTARIO,
             coords.x1,coords.x2))
@@ -25,7 +31,14 @@ tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>%
   mutate(LONGITUD=NULL,LATITUD=NULL)  %>% subset(x<15*-1 & y>27.3) %>% 
   group_by(Indicativo,NOMBRE)
 
+
 tmean<- tmean %>% summarise(across(enero:diciembre,mean),n=n(),across(x:y,max))
+
+prec<-read_delim("PRECIP.MENSUALES.CSV",delim=";") %>%
+ rename(year=7) %>% 
+  #na.omit() %>% 
+  mutate(across(enero:diciembre,as.numeric))
+  summarise(across(enero:diciembre,mean),n=n(),across(LONGITUD:LATITUD,max))
 
 GCdf<-GCdf %>% rename(Indicativo=IND_INM)
 GCdf[c("FID_","INDCTV","TIPO")]<-NULL
