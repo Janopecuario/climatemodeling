@@ -72,11 +72,18 @@ mapaweb<-leaflet() %>%
 saveWidget(mapaweb,file="mapaweb.html")
 #1.Relativizar coordenadas####
 
-predictores<-GCdf %>% select(x,y,ALT)
-precipitacion<-
-fields::Tps(x, Y, m = NULL, p = NULL, scale.type = "range", lon.lat = FALSE,
-            miles = TRUE, method = "GCV", GCV = TRUE, ...) #función thinplate
-
+predictores<-GCdf %>% filter(MEDANO>0)%>% select(x,y,ALTI) 
+precipitacion<-GCdf%>% filter(MEDANO>0) %>%select(MEDANO)
+z=predictores["ALTI"]
+prec<-fields::Tps(x=predictores, Y=precipitacion, m = NULL, p = NULL, scale.type = "range", lon.lat = FALSE,
+            miles = TRUE, method = "GCV", GCV = TRUE) #función thinplate
+prec2<-fields::Tps(x=predictores[c("x","y")], Y=precipitacion, m = NULL, p = NULL, scale.type = "range", lon.lat = FALSE,
+                  miles = TRUE, method = "GCV", GCV = TRUE) #función thinplate
+surface(prec2)
+par(mfrow(1,2))
+surface(prec)
+surface(prec2)
+ggplot()
 zi<-xi-min/max-min
 
 
