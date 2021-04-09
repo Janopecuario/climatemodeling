@@ -16,18 +16,26 @@ GCelev<-GCelev%>%
 archipielago<-
 GC<-readOGR("estacionesAEMET_GC.shp")
 GCgeo<-spTransform(GC,projectiongeo)
-coordinates(GCgeo)
+
+
+limGC<-extent(GC)
+plot(GC)
+GCdf<-data.frame(GCgeo) #%>% mutate(LONG=LONG/10000,LAT=LAT/10000)
+GCdf$x<-coordinates(GCgeo)[,1]
+GCdf$y<-coordinates(GCgeo)[,2]
+tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1) %>% 
+  subset(NOM_PROV=="LAS PALMAS") %>% mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
+  mutate(LONGITUD=NULL,LATITUD=NULL) %>% rename(year=5) %>% subset(x<15*-1 & y>27.3)
 limGC<-extent(GCgeo)
 plot(GCgeo)
 GCdf<-data.frame(GC) %>% mutate(LONG=LONG/10000,LAT=LAT/10000) %>% 
   dplyr::select(-c(XUTM30,YUTM30,PROV_NOMBR,NOMHOJA,ALTI_ANE,PROV_ID,
             NUM_CUENCA,HOJA_ID,GR_CUENCA_,TIPO_CORRI,AMBITO,
             AMBITO_ID,CORRIENTE,CDR1,CDR2,optional,COMENTARIO,
-            coords.x1,coords.x2))
-GCdf$x<-coordinates(GCgeo)[,1]
-GCdf$y<-coordinates(GCgeo)[,2]
-tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>% 
-  subset(NOM_PROV=="LAS PALMAS") %>% na.omit() %>% mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
+            coords.x1,coords.x2)) %>% rename(Indicativo=IND_INM)
+
+tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>% rename(year=7) %>% 
+  subset(NOM_PROV=="LAS PALMAS") %>%na.omit() %>%  mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
   mutate(LONGITUD=NULL,LATITUD=NULL)  %>% subset(x<15*-1 & y>27.3) %>% 
   group_by(Indicativo,NOMBRE)
 
@@ -35,11 +43,21 @@ tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>%
 tmean<- tmean %>% summarise(across(enero:diciembre,mean),n=n(),across(x:y,max))
 
 prec<-read_delim("PRECIP.MENSUALES.CSV",delim=";") %>%
- rename(year=7) %>% 
-  #na.omit() %>% 
-  mutate(across(enero:diciembre,as.numeric))
-  summarise(across(enero:diciembre,mean),n=n(),across(LONGITUD:LATITUD,max))
+ rename(year=7) %>% subset(NOM_PROV=="LAS PALMAS")
+  na.omit() %>% group_by(Indicativo) %>% 
+  mutate(across(enero:diciembre,as.numeric)) %>%
+  mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
+  mutate(LONGITUD=NULL,LATITUD=NULL) %>% 
+  subset(x<15*-1 & y>27.3) %>% 
+  summarise(across(enero:diciembre,mean),n=n(),across(x:y,max)) %>% 
+    mutate(total=sum(enero:diciembre)) %>% mutate(across(enero:diciembre,as.numeric))
 
+GCprec<-full_join(GCdf,prec,by="Indicativo",suffix=c("_GC","_AEMET"))
+coordenadasprec<-read_delim("coordsprec.csv",delim=";") %>% group_by(NOMBRE) %>% na.omit() %>% 
+  summarise(across(3:4,mean)) %>% subset(x>-16 & x<15*-1)
+
+coordenadasprec[1,1]<-"AGUIMES EL MILANO"
+ggplot(coordenadasprec,aes(x,y))+geom_point()
 GCdf<-GCdf %>% rename(Indicativo=IND_INM)
 GCdf[c("FID_","INDCTV","TIPO")]<-NULL
 GCdf[c("SGE","TIPO_CORR_","TOTANOS","TOTANOSC")]<-NULL
@@ -51,10 +69,12 @@ relocate(NOMBRE,.after = LUGAR)
 GCtmean %>% na.omit() %>% View()
 GCtmean %>% select(Indicativo_AEMET) %>% na.omit() %>% dim()
 GCtmean %>% select(Indicativo_GC) %>% na.omit() %>% dim()
+
 SpatialPointsDataFrame(coords=tmean[c("x","y")],data=tmean) %>% plot()
 points(GC)
 
 
+#1.1 Crear mapa web####
 mapaweb<-leaflet() %>% 
   addTiles(group="Open Street Maps") %>%
   addProviderTiles(providers$Esri.WorldImagery,group="Ortoimágenes") %>% 
@@ -68,15 +88,18 @@ mapaweb<-leaflet() %>%
              #icon=iconoLIFE,
              lng=GCdf$x,lat=GCdf$y, 
              popup = GCdf$LUGAR) %>% 
-  #addMarkers(data=tmean,
+  addCircleMarkers(data=coordenadasprec,
              #group="Actuaciones LIFE CAÑADAS",
+
+              #icon=quakeIcons,
+              lng=coordenadasprec$x,lat=coordenadasprec$y,
+              #popup = tmean$NOMBRE             ) %>%
+
              # icon=greenLeafIcon,
              # lng=tmean$x,lat=tmean$y#,
-             # # popup = tmean$NOMBRE
-  # ) %>% 
-  
-  
-  
+             #popup = ~htmlEscape(coordenadasprec$NOMBRE)
+             ) %>%
+
   addLayersControl(
     baseGroups = c("Open Street Maps","Ortoimágenes"),
     #overlayGroups = c("Vías Pecuarias","Unidad de Arcosas", "Actuaciones LIFE CAÑADAS"),
