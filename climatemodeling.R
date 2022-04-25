@@ -1,40 +1,98 @@
 #0.PREPARACIÓN####
 packages<-c("tidyverse","sp","rgdal",
             "raster","DHARMa","mgcv","fields","viridis","leaflet",
-            "htmltools","htmlwidgets")
+            "htmltools","htmlwidgets","fields")
 sapply(packages,require,character.only=TRUE,quietly=TRUE)
 projectionUTM<-"+proj=utm +zone=28 +ellps=WGS84 +datum=WGS84 +units=m +no_defs "
 projectiongeo<-"+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"
+grancanaria<-readOGR("~/rhamnus/islas.shp")
+grancanaria<-subset(grancanaria, nombre=="GRAN CANARIA") %>% spTransform(projectiongeo)
+mdt<-readOGR("Height_Malla.shp") %>% spTransform(projectiongeo)
+mdtRUTM<-mdt %>% as.data.frame() %>% select(c(2:4)) %>% 
+  rasterFromXYZ(crs=projectionUTM) 
+mdtR<-projectRaster(from=mdtRUTM,crs=projectiongeo)
+aspect<-raster::terrain(mdtR,opt="aspect",unit="degrees") %>% cos()
+mdtgeo<-readOGR("heightgeo.shp") %>% raster() %>% plot()
+mdtR<-mdtgeo %>% spTransform(projectiongeo) %>% 
+  as.data.frame() %>% select(c(2:4)) %>% 
+  rasterFromXYZ(crs=projectiongeo)
 
-#1.1. Cotejar coordenadas ISA Gran Canaria
-GCelev<-raster("C:/Users/Alejandro/Documents/Tesis/Lacer/grancanaria.asc")
-crs(GCelev)<-projectionUTM
-GCelev<-GCelev%>% 
-  projectRaster(crs=projectiongeo)
+terreno<-mdtR %>% as.data.frame(xy=TRUE)
+terreno<-aspect %>% as.data.frame() %>% cbind(terreno,.) %>% 
+  rename(z=h_mean,asp=layer)
+
+centroides<-readOGR("Centroides_Malla_H.shp")
+centroidesUTM<-spTransform(centroides,projectiongeo) %>% 
+  as.data.frame() %>% select(c(2:4)) %>% 
+  rasterFromXYZ(crs=projectionUTM)
+centroidesgeo<-projectRaster(from=centroidesUTM,crs=projectiongeo)
+aspect<-raster::terrain(centroidesgeo,opt="aspect",unit="degrees") %>% cos()
+
+mdt25<-raster("136_MDT25_GC.tif") %>% 
+  projectRaster(crs=projectiongeo) %>% 
+  crop(grancanaria) %>% mask(grancanaria)
+aspect<-raster::terrain(mdt25,opt="aspect",unit="degrees") %>% 
+  cos()  
+
+terreno<-mdt25 %>% as.data.frame(xy=TRUE)
+terreno<-aspect %>% as.data.frame() %>% cbind(terreno,.) %>% 
+  rename(z=X136_MDT25_GC,asp=layer)
+
+res<-res(mdtR)
+mdt500<-raster("mdt500.tif") 
+mdt500<-projectRaster(from=mdt500,crs=projectiongeo)
+aspect<-raster::terrain(mdt500,opt="aspect",unit="degrees") %>% 
+  cos()  
+terreno<-mdt500 %>% as.data.frame(xy=TRUE)
+terreno<-aspect %>% as.data.frame() %>% cbind(terreno,.) %>% 
+  rename(z=mdt500,asp=layer)
+
+#tmean####
+
+tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";") %>% 
+  subset(NOM_PROV=="LAS PALMAS") %>% 
+  subset(x<15*-1 & y>27.3) %>%
+  select(-c(5:8,10:12)) %>% 
+  select(-c("NOMBRE","ALTITUD","Media","NOM_PROV")) %>% 
+  group_by(Indicativo) %>% 
+  summarise_all(mean,na.rm=TRUE)
+
+tmean$long<-coordinates(tmean)
+tmean_mdt<-raster::extract(mdt500,tmean[2:3])
+tmean_aspect<-raster::extract(aspect,tmean[2:3])
+tmean<-cbind(tmean,tmean_mdt,tmean_aspect) %>% 
+  rename(z=tmean_mdt,asp=tmean_aspect) %>% tibble()
+
+tmean_sub<-tmean %>% 
+  dplyr::select(x,y,z,asp,enero) %>% na.omit()
+predictores<-tmean %>% dplyr::select(x,y,z,asp) %>% 
+  replace_na(list(asp=0))
+
+datatemp<-cbind(tmean$enero,predictores) %>% rename(enero="tmean$enero")
+tmeanenero<-Tps(x=predictores,Y=tmean$enero,miles=F)
+gamenero<-mgcv::gam(enero~s(z)+s(y)+s(x)+s(asp),data=datatemp)
+predictenero<-cbind(terreno,predict(gamenero,terreno)) %>% 
+  rename(prediction=5) %>% select(1,2,5) %>% 
+  rasterFromXYZ(crs=projectiongeo)
 
 
-archipielago<-
-GC<-readOGR("estacionesAEMET_GC.shp")
-GCgeo<-spTransform(GC,projectiongeo)
+writeRaster(predictenero,"tmeanenero.tiff",overwrite=TRUE)
+predicteneroUTM<-projectRaster(from=predictenero,crs=projectionUTM)
+writeRaster(predicteneroUTM,"tmeaneneroUTM.tiff",overwrite=TRUE)
+                    
 
-
-limGC<-extent(GC)
-plot(GC)
-GCdf<-data.frame(GCgeo) #%>% mutate(LONG=LONG/10000,LAT=LAT/10000)
-GCdf$x<-coordinates(GCgeo)[,1]
-GCdf$y<-coordinates(GCgeo)[,2]
-tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1) %>% 
-  subset(NOM_PROV=="LAS PALMAS") %>% mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
-  mutate(LONGITUD=NULL,LATITUD=NULL) %>% rename(year=5) %>% subset(x<15*-1 & y>27.3)
+plot(gamenero)
 limGC<-extent(GCgeo)
 plot(GCgeo)
 GCdf<-data.frame(GC) %>% mutate(LONG=LONG/10000,LAT=LAT/10000) %>% 
   dplyr::select(-c(XUTM30,YUTM30,PROV_NOMBR,NOMHOJA,ALTI_ANE,PROV_ID,
             NUM_CUENCA,HOJA_ID,GR_CUENCA_,TIPO_CORRI,AMBITO,
             AMBITO_ID,CORRIENTE,CDR1,CDR2,optional,COMENTARIO,
-            coords.x1,coords.x2)) %>% rename(Indicativo=IND_INM)
+            coords.x1,coords.x2)) %>% rename(Indicativo=IND_INM) %>% 
+  filter(ANOINI>0)
 
-tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>% rename(year=7) %>% 
+tmean<-read_delim("TEMP.MEDIA MENSUAL.CSV",delim=";",skip=1)%>%
+  rename(year=7) %>% 
   subset(NOM_PROV=="LAS PALMAS") %>%na.omit() %>%  mutate(x=LONGITUD/-100000,y=LATITUD/10000) %>% 
   mutate(LONGITUD=NULL,LATITUD=NULL)  %>% subset(x<15*-1 & y>27.3) %>% 
   group_by(Indicativo,NOMBRE)
@@ -130,3 +188,37 @@ zi<-xi-min/max-min
 #readtmax
 #evaptranstot
 pet<-batchPetHgsm(petfiles, 01, tmin, tmean, tmax, rad)
+
+#ÑAPA GC####
+setwd("~/Spalmensis")
+gridded(meuse.grid) <- ~x+y
+meuse.raster <- raster(meuse.grid)
+plot(meuse.raster)
+gcfiles<-list.files(pattern="grancanaria")
+gcstack<-stack()
+for(i in gcfiles){
+  print(i)
+  raster(i) %>% aggregate(10) %>%
+    mask(grancanaria) %>% 
+    writeRaster(paste0("500",i),overwrite=TRUE)
+    
+  
+}
+raster(paste0("500",gcfiles[1])) %>% plot()
+#1.1. Cotejar coordenadas ISA Gran Canaria
+GCelev<-raster("grancanaria.asc")
+crs(GCelev)<-projectionUTM
+GCelev<-GCelev%>% 
+  projectRaster(crs=projectiongeo)
+
+
+archipielago<-
+  GC<-readOGR("estacionesAEMET_GC.shp")
+GCgeo<-spTransform(GC,projectiongeo)
+
+
+limGC<-extent(GC)
+plot(GC)
+GCdf<-data.frame(GCgeo) #%>% mutate(LONG=LONG/10000,LAT=LAT/10000)
+GCdf$x<-coordinates(GCgeo)[,1]
+GCdf$y<-coordinates(GCgeo)[,2]
